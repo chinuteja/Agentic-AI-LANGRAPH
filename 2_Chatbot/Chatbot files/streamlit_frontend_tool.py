@@ -1,10 +1,10 @@
 import streamlit as st
-from langgraph_backend_database import (
+from langgraph_tool_backend import (
     chatbot,
     retrieve_all_threads,
     delete_thread
 )
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 import uuid
 
 
@@ -15,27 +15,6 @@ import uuid
 def generate_thread_id():
     """Generate a unique thread ID."""
     return str(uuid.uuid4())
-
-
-def get_thread_title(thread_id):
-    """
-    Get the first user question from a conversation
-    and use it as the sidebar title.
-    """
-
-    messages = load_conversation(thread_id)
-
-    for message in messages:
-        if isinstance(message, HumanMessage):
-            title = message.content.strip()
-
-            # Limit title length for sidebar
-            if len(title) > 35:
-                title = title[:35] + "..."
-
-            return title
-
-    return "New Chat"
 
 
 def load_conversation(thread_id):
@@ -52,8 +31,28 @@ def load_conversation(thread_id):
     return state.values.get("messages", [])
 
 
+def get_thread_title(thread_id):
+    """Get the first user question as the conversation title."""
+
+    messages = load_conversation(thread_id)
+
+    for message in messages:
+
+        if isinstance(message, HumanMessage):
+
+            title = message.content.strip()
+
+            # Keep sidebar title short
+            if len(title) > 35:
+                title = title[:35] + "..."
+
+            return title
+
+    return "New Chat"
+
+
 def add_thread(thread_id):
-    """Add thread if it doesn't already exist."""
+    """Add thread to session state if it doesn't exist."""
 
     if thread_id not in st.session_state["chat_threads"]:
         st.session_state["chat_threads"].append(thread_id)
@@ -71,7 +70,7 @@ def reset_chat():
 
 
 def load_thread(thread_id):
-    """Load a selected conversation into session state."""
+    """Load selected conversation."""
 
     st.session_state["thread_id"] = thread_id
 
@@ -83,8 +82,12 @@ def load_thread(thread_id):
 
         if isinstance(msg, HumanMessage):
             role = "user"
-        else:
+
+        elif isinstance(msg, AIMessage):
             role = "assistant"
+
+        else:
+            continue
 
         temp_messages.append(
             {
@@ -106,7 +109,7 @@ def delete_chat(thread_id):
     if thread_id in st.session_state["chat_threads"]:
         st.session_state["chat_threads"].remove(thread_id)
 
-    # If deleted chat was active, create a new chat
+    # If currently active chat was deleted
     if st.session_state["thread_id"] == thread_id:
 
         new_thread_id = generate_thread_id()
@@ -143,7 +146,7 @@ add_thread(st.session_state["thread_id"])
 st.sidebar.title("🤖 LangGraph Chatbot")
 
 
-# New Chat button
+# New Chat
 if st.sidebar.button(
     "➕ New Chat",
     use_container_width=True
@@ -164,14 +167,14 @@ st.sidebar.subheader("💬 My Conversations")
 
 for thread_id in st.session_state["chat_threads"][::-1]:
 
-    # Get first question
     title = get_thread_title(thread_id)
 
-    # Create two columns
-    col1, col2 = st.sidebar.columns([5, 1])
+    col1, col2 = st.sidebar.columns(
+        [5, 1],
+        gap="small"
+    )
 
-
-    # Conversation button
+    # Conversation
     with col1:
 
         if st.button(
@@ -183,8 +186,7 @@ for thread_id in st.session_state["chat_threads"][::-1]:
             load_thread(thread_id)
             st.rerun()
 
-
-    # Delete button
+    # Delete
     with col2:
 
         if st.button(
@@ -204,12 +206,13 @@ for thread_id in st.session_state["chat_threads"][::-1]:
 st.title("💬 LangGraph Chatbot")
 
 
-# Display conversation history
+# ============================================================
+# Display Conversation History
+# ============================================================
 
 for message in st.session_state["message_history"]:
 
     with st.chat_message(message["role"]):
-
         st.markdown(message["content"])
 
 
@@ -233,59 +236,58 @@ if user_input:
         }
     )
 
-
     with st.chat_message("user"):
-
         st.markdown(user_input)
 
 
     # --------------------------------------------------------
-    # LangGraph configuration
+    # LangGraph Configuration
     # --------------------------------------------------------
 
     CONFIG = {
-
         "configurable": {
             "thread_id": st.session_state["thread_id"]
         },
-
         "metadata": {
             "thread_id": st.session_state["thread_id"]
         },
-
         "run_name": "chat_turn"
     }
 
 
     # --------------------------------------------------------
-    # Stream AI response
+    # Stream AI Response
     # --------------------------------------------------------
 
     with st.chat_message("assistant"):
 
-        ai_message = st.write_stream(
-
-            message_chunk.content
+        def ai_only_stream():
 
             for message_chunk, metadata in chatbot.stream(
 
                 {
                     "messages": [
-                        HumanMessage(
-                            content=user_input
-                        )
+                        HumanMessage(content=user_input)
                     ]
                 },
 
                 config=CONFIG,
 
                 stream_mode="messages"
-            )
+            ):
+
+                if isinstance(message_chunk, AIMessage):
+
+                    yield message_chunk.content
+
+
+        ai_message = st.write_stream(
+            ai_only_stream()
         )
 
 
     # --------------------------------------------------------
-    # Save AI response to UI history
+    # Save Assistant Response
     # --------------------------------------------------------
 
     st.session_state["message_history"].append(

@@ -15,8 +15,8 @@ load_dotenv()
 # **************************************** LLM ***************************************
 
 llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
-    temperature=0
+    model="openai/gpt-oss-120b",
+    temperature=0.3
 )
 
 
@@ -75,3 +75,21 @@ def retrieve_all_threads():
         all_threads.add(thread_id)
 
     return list(all_threads)
+
+
+def delete_thread(thread_id: str):
+    """Delete all checkpoint data associated with a thread."""
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM writes WHERE thread_id = ?",
+        (thread_id,)
+    )
+
+    cursor.execute(
+        "DELETE FROM checkpoints WHERE thread_id = ?",
+        (thread_id,)
+    )
+
+    conn.commit()
